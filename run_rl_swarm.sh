@@ -13,6 +13,33 @@ export CONNECT_TO_TESTNET
 export ORG_ID
 export HF_HUB_DOWNLOAD_TIMEOUT=120  # 2 minutes
 
+# 添加重启相关变量
+RETRY_COUNT=0
+RETRY_DELAY=240  # 重启等待时间（秒）
+
+# Mac特定的内存优化设置
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # Mac环境变量设置
+    export PYTORCH_ENABLE_MPS_FALLBACK=1
+    export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0
+    export OMP_NUM_THREADS=2
+    export MKL_NUM_THREADS=2
+    export VECLIB_MAXIMUM_THREADS=2
+    export NUMEXPR_NUM_THREADS=2
+    export NUMEXPR_MAX_THREADS=2
+    
+    # Mac上使用不同的内存限制方式
+    export PYTORCH_MPS_ALLOCATOR_POLICY=delayed
+    export PYTORCH_MPS_ALLOCATOR_POLICY_MAX_ALLOCATION=4096  # 限制最大内存分配为6GB
+else
+    # 非Mac环境设置
+    export CUDA_VISIBLE_DEVICES=0
+    export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+    export OMP_NUM_THREADS=4
+    export MKL_NUM_THREADS=4
+    ulimit -v 16000000
+fi
+
 # Check if public multi-address is given else set to default
 DEFAULT_PUB_MULTI_ADDRS=""
 PUB_MULTI_ADDRS=${PUB_MULTI_ADDRS:-$DEFAULT_PUB_MULTI_ADDRS}
@@ -63,6 +90,34 @@ cleanup() {
     exit 0
 }
 
+# 添加检查和清理进程的函数
+check_and_cleanup_processes() {
+    echo_green ">> 检查并清理已存在的进程..."
+    if [ -f "$ROOT/swarm.pem" ]; then
+        echo_green ">> 检测到 swarm.pem 文件: $ROOT/swarm.pem"
+        for pid in $(lsof -t "$ROOT/swarm.pem" 2>/dev/null); do
+            echo_green ">> 检测到使用 swarm.pem 的进程: $pid"
+            if kill -9 $pid 2>/dev/null; then
+                echo_green ">> 成功终止进程: $pid"
+            fi
+        done
+        sleep 2
+    fi
+
+    for pid in $(pgrep -f "hivemind"); do
+        echo_green ">> 检测到 hivemind 相关进程: $pid"
+        if kill -9 $pid 2>/dev/null; then
+            echo_green ">> 成功终止进程: $pid"
+        fi
+    done
+    sleep 2
+
+    echo_green ">> 清理信号量..."
+    for sem in $(ipcs -s | awk '{print $2}' | tail -n +3); do
+        ipcrm -s $sem 2>/dev/null || true
+    done
+}
+
 trap cleanup EXIT
 
 echo -e "\033[38;5;224m"
@@ -77,91 +132,85 @@ cat << "EOF"
                                                                 
 EOF
 
-while true; do
-    echo -en $GREEN_TEXT
-    read -p ">> Would you like to connect to the Testnet? [Y/n] " yn
-    echo -en $RESET_TEXT
-    yn=${yn:-Y}  # Default to "Y" if the user presses Enter
-    case $yn in
-        [Yy]*)  CONNECT_TO_TESTNET=True && break ;;
-        [Nn]*)  CONNECT_TO_TESTNET=False && break ;;
-        *)  echo ">>> Please answer yes or no." ;;
-    esac
-done
+# 自动设置连接选项
+CONNECT_TO_TESTNET=True
+echo_green ">> connecting to Testnet"
 
-if [ "$CONNECT_TO_TESTNET" = "True" ]; then
-    # Run modal_login server.
-    echo "Please login to create an Ethereum Server Wallet"
-    cd modal-login
-    # Check if the yarn command exists; if not, install Yarn.
-    source ~/.bashrc
+# Run modal_login server.
+echo "Please login to create an Ethereum Server Wallet"
+cd modal-login
+# Check if the yarn command exists; if not, install Yarn.
+source ~/.bashrc
 
-    # Node.js + NVM setup
-    if ! command -v node >/dev/null 2>&1; then
-        echo "Node.js not found. Installing NVM and latest Node.js..."
-        export NVM_DIR="$HOME/.nvm"
-        if [ ! -d "$NVM_DIR" ]; then
-            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-        fi
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-       nvm install node
-    else
-        echo "Node.js is already installed: $(node -v)"
+# Node.js + NVM setup
+if ! command -v node >/dev/null 2>&1; then
+    echo "Node.js not found. Installing NVM and latest Node.js..."
+    export NVM_DIR="$HOME/.nvm"
+    if [ ! -d "$NVM_DIR" ]; then
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
     fi
-
-    if ! command -v yarn > /dev/null 2>&1; then
-        # Detect Ubuntu (including WSL Ubuntu) and install Yarn accordingly
-        if grep -qi "ubuntu" /etc/os-release 2> /dev/null || uname -r | grep -qi "microsoft"; then
-            echo "Detected Ubuntu or WSL Ubuntu. Installing Yarn via apt..."
-            curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
-            echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
-            sudo apt update && sudo apt install -y yarn
-        else
-            echo "Yarn is not installed. Installing Yarn..."
-            curl -o- -L https://yarnpkg.com/install.sh | sh
-            echo 'export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"' >> ~/.bashrc
-            source ~/.bashrc
-        fi
-    fi
-    yarn install
-    yarn dev > /dev/null 2>&1 & # Run in background and suppress output
-
-    SERVER_PID=$!  # Store the process ID
-    echo "Started server process: $SERVER_PID"
-    sleep 5
-    
-    # Try to open the URL in the default browser
-    if open http://localhost:3000 2>/dev/null; then
-        echo_green ">> Successfully opened http://localhost:3000 in your default browser."
-    else
-        echo ">> Failed to open http://localhost:3000. Please open it manually."
-    fi
-    
-    cd ..
-
-    echo_green ">> Waiting for modal userData.json to be created..."
-    while [ ! -f "modal-login/temp-data/userData.json" ]; do
-        sleep 5  # Wait for 5 seconds before checking again
-    done
-    echo "Found userData.json. Proceeding..."
-
-    ORG_ID=$(awk 'BEGIN { FS = "\"" } !/^[ \t]*[{}]/ { print $(NF - 1); exit }' modal-login/temp-data/userData.json)
-    echo "Your ORG_ID is set to: $ORG_ID"
-
-    # Wait until the API key is activated by the client
-    echo "Waiting for API key to become activated..."
-    while true; do
-        STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
-        if [[ "$STATUS" == "activated" ]]; then
-            echo "API key is activated! Proceeding..."
-            break
-        else
-            echo "Waiting for API key to be activated..."
-            sleep 5
-        fi
-    done
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+    nvm install node
+else
+    echo "Node.js is already installed: $(node -v)"
 fi
+
+if ! command -v yarn > /dev/null 2>&1; then
+    # Detect Ubuntu (including WSL Ubuntu) and install Yarn accordingly
+    if grep -qi "ubuntu" /etc/os-release 2> /dev/null || uname -r | grep -qi "microsoft"; then
+        echo "Detected Ubuntu or WSL Ubuntu. Installing Yarn via apt..."
+        curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
+        echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
+        sudo apt update && sudo apt install -y yarn
+    else
+        echo "Yarn is not installed. Installing Yarn..."
+        curl -o- -L https://yarnpkg.com/install.sh | sh
+        echo 'export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"' >> ~/.bashrc
+        source ~/.bashrc
+    fi
+fi
+yarn install
+yarn dev > /dev/null 2>&1 & # Run in background and suppress output
+
+SERVER_PID=$!  # Store the process ID
+echo "Started server process: $SERVER_PID"
+sleep 5
+
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    open http://localhost:3000
+elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
+    # Windows
+    start http://localhost:3000
+else
+    # Linux
+    xdg-open http://localhost:3000 2>/dev/null || sensible-browser http://localhost:3000 2>/dev/null || python -m webbrowser http://localhost:3000
+fi
+
+cd ..
+
+echo_green ">> Waiting for modal userData.json to be created..."
+while [ ! -f "modal-login/temp-data/userData.json" ]; do
+    sleep 5  # Wait for 5 seconds before checking again
+done
+echo "Found userData.json. Proceeding..."
+
+ORG_ID=$(awk 'BEGIN { FS = "\"" } !/^[ \t]*[{}]/ { print $(NF - 1); exit }' modal-login/temp-data/userData.json)
+echo "Your ORG_ID is set to: $ORG_ID"
+
+# Wait until the API key is activated by the client
+echo "Waiting for API key to become activated..."
+while true; do
+    STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
+    if [[ "$STATUS" == "activated" ]]; then
+        echo "API key is activated! Proceeding..."
+        break
+    else
+        echo "Waiting for API key to be activated..."
+        sleep 5
+    fi
+done
 
 pip_install() {
     pip install --disable-pip-version-check -q -r "$1"
@@ -171,53 +220,77 @@ echo_green ">> Getting requirements..."
 pip_install "$ROOT"/requirements-hivemind.txt
 pip_install "$ROOT"/requirements.txt
 
+echo_green ">> 检测系统环境..."
 if ! command -v nvidia-smi &> /dev/null; then
-    # You don't have a NVIDIA GPU
+    echo_green ">> 未检测到 NVIDIA GPU，默认使用 CPU 模式"
     CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
-elif [ -n "$CPU_ONLY" ]; then
-    # ... or we don't want to use it
-    CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
+    export CUDA_VISIBLE_DEVICES=""
 else
-    # NVIDIA GPU found
-    pip_install "$ROOT"/requirements_gpu.txt
-    CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
+    echo_green ">> 检测到 NVIDIA GPU"
+    echo_green "请选择运行模式: 1. GPU 模式 2. CPU 模式"
+    read -p "请输入选项 (1 或 2): " MODE
+    echo "----------------------------------------"
+
+    if [ "$MODE" == "1" ]; then
+        echo_green ">> 使用 GPU 模式"
+        pip_install "$ROOT"/requirements_gpu.txt
+        CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
+    elif [ "$MODE" == "2" ]; then
+        echo_green ">> 使用 CPU 模式"
+        CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
+        export CUDA_VISIBLE_DEVICES=""
+        CPU_ONLY=${CPU_ONLY:-"1"}
+    else
+        echo_green ">> 无效选项，默认使用 CPU 模式"
+        CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
+        export CUDA_VISIBLE_DEVICES=""
+        CPU_ONLY=${CPU_ONLY:-"1"}
+    fi
 fi
 
 echo_green ">> Done!"
 
-HF_TOKEN=${HF_TOKEN:-""}
-if [ -n "${HF_TOKEN}" ]; then # Check if HF_TOKEN is already set and use if so. Else give user a prompt to choose.
-    HUGGINGFACE_ACCESS_TOKEN=${HF_TOKEN}
-else
-    echo -en $GREEN_TEXT
-    read -p ">> Would you like to push models you train in the RL swarm to the Hugging Face Hub? [y/N] " yn
-    echo -en $RESET_TEXT
-    yn=${yn:-N} # Default to "N" if the user presses Enter
-    case $yn in
-        [Yy]*) read -p "Enter your Hugging Face access token: " HUGGINGFACE_ACCESS_TOKEN ;;
-        [Nn]*) HUGGINGFACE_ACCESS_TOKEN="None" ;;
-        *) echo ">>> No answer was given, so NO models will be pushed to Hugging Face Hub" && HUGGINGFACE_ACCESS_TOKEN="None" ;;
-    esac
-fi
+HUGGINGFACE_ACCESS_TOKEN="None"
+echo_green ">> auto setting Hugging Face token to None"
 
 echo_green ">> Good luck in the swarm!"
 echo_blue ">> Post about rl-swarm on X/twitter! --> https://tinyurl.com/swarmtweet"
 echo_blue ">> And remember to star the repo on GitHub! --> https://github.com/gensyn-ai/rl-swarm"
 
-if [ -n "$ORG_ID" ]; then
-    python -m hivemind_exp.gsm8k.train_single_gpu \
-        --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
-        --identity_path "$IDENTITY_PATH" \
-        --modal_org_id "$ORG_ID" \
-        --config "$CONFIG_PATH"
-else
-    python -m hivemind_exp.gsm8k.train_single_gpu \
-        --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
-        --identity_path "$IDENTITY_PATH" \
-        --public_maddr "$PUB_MULTI_ADDRS" \
-        --initial_peers "$PEER_MULTI_ADDRS" \
-        --host_maddr "$HOST_MULTI_ADDRS" \
-        --config "$CONFIG_PATH"
-fi
+run_training() {
+    if [ -n "$ORG_ID" ]; then
+        python -m hivemind_exp.gsm8k.train_single_gpu \
+            --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
+            --identity_path "$IDENTITY_PATH" \
+            --modal_org_id "$ORG_ID" \
+            --config "$CONFIG_PATH"
+    else
+        python -m hivemind_exp.gsm8k.train_single_gpu \
+            --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
+            --identity_path "$IDENTITY_PATH" \
+            --public_maddr "$PUB_MULTI_ADDRS" \
+            --initial_peers "$PEER_MULTI_ADDRS" \
+            --host_maddr "$HOST_MULTI_ADDRS" \
+            --config "$CONFIG_PATH"
+    fi
+}
+
+# 主循环
+while true; do
+    # 在开始训练前调用清理函数
+    check_and_cleanup_processes
+    echo_green ">> Starting training attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES"
+
+    # 运行训练
+   if run_training; then
+        echo_green ">> Training completed successfully"
+    else
+        echo_green ">> Training failed, will retry after $RETRY_DELAY seconds"
+        sleep $RETRY_DELAY
+    fi
+
+    # 增加重试计数
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+done
 
 wait  # Keep script running until Ctrl+C

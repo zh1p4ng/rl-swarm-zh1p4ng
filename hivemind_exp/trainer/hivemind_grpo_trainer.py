@@ -23,10 +23,7 @@ from hivemind_exp.dht_utils import (
 from hivemind_exp.hivemind_utils import HivemindNode, StageData
 from hivemind_exp.name_utils import get_name_from_peer_id
 
-
 MAX_TRAIN_FAILS = 5
-CADENCE_OF_UPDATE_STEPS = 4
-
 
 class HivemindGRPOTrainer:
     """
@@ -74,29 +71,28 @@ class HivemindGRPOTrainer:
             # Reward function must save node.outputs + node.rewards!
             # This is only here to publish to the DHT at the right time.
             # Only publish to DHT every N steps
-            if self.state.global_step % CADENCE_OF_UPDATE_STEPS == 0:
-                question = self.node.outputs["question"]
-                q_hash = hashlib.md5(question.encode()).hexdigest()
+            question = self.node.outputs["question"]
+            q_hash = hashlib.md5(question.encode()).hexdigest()
 
-                value = (time.time(), self.node.outputs)
-                self.dht.store(
-                    key=node_outputs_key(self.node),
-                    subkey=q_hash,
-                    value=value,
-                    expiration_time=get_dht_time() + self.node.out_expiration,
-                )
-                self.node.put_stage_outputs(
-                    self.node.round_num, self.node.stage_num, q_hash, value
-                )
+            value = (time.time(), self.node.outputs)
+            self.dht.store(
+                key=node_outputs_key(self.node),
+                subkey=q_hash,
+                value=value,
+                expiration_time=get_dht_time() + self.node.out_expiration,
+            )
+            self.node.put_stage_outputs(
+                self.node.round_num, self.node.stage_num, q_hash, value
+            )
 
-                # Just the latest.
-                self.stage_rewards += sum(self.node.rewards)
-                self.dht.store(
-                    key=rewards_key(self.node.round_num, self.node.stage_num),
-                    subkey=self.node.key,
-                    value=self.stage_rewards,
-                    expiration_time=get_dht_time() + self.node.out_expiration,
-                )
+            # Just the latest.
+            self.stage_rewards += sum(self.node.rewards)
+            self.dht.store(
+                key=rewards_key(self.node.round_num, self.node.stage_num),
+                subkey=self.node.key,
+                value=self.stage_rewards,
+                expiration_time=get_dht_time() + self.node.out_expiration,
+            )
             if self.node.is_coordinator:
                 self.publish_leaderboard()
 
@@ -113,17 +109,15 @@ class HivemindGRPOTrainer:
         log_tag=None,
         **kwargs,
     ):
-        # The single coordinator is responsible for incrementing round + stage numbers.
-        # TODO(lou): Allow ability to choose different coordinators?
         self.node = node
         self.dht = dht
 
         self.stage_data = stage_data
 
         self.config = config
-        self.config.dataloader_num_workers=0  # Default: 8+
-        assert self.config.output_dir
-        self.config.output_dir += f"-{get_name_from_peer_id(self.node.key, True)}"  # TODO: Add animal name to save path in more appropriate spot
+        self.config.dataloader_num_workers=0
+        self.config.output_dir
+        self.config.output_dir += f"-{get_name_from_peer_id(self.node.key, True)}"
         self.model = model
         self.tokenizer = tokenizer
         if tokenizer.pad_token is None:
@@ -132,7 +126,7 @@ class HivemindGRPOTrainer:
         if not log_tag:
             log_tag = self.node.key
 
-        self.logger = logging.getLogger(f"{__name__}:{log_tag}")
+        self.logger = logging.getLogger(f"{__name__}: {log_tag}")
 
     def wait_for(self, result_fn=lambda: None, interval=10, timeout=30):
         start_time = time.monotonic()
@@ -142,11 +136,9 @@ class HivemindGRPOTrainer:
                 time.sleep(interval)
             else:
                 break
-
         return result
 
     def train_stages(self, round_num, start_stage, is_coordinator):
-        # TODO: Needs checkpoint loading
         self.node.round_num = round_num
         for i, stage in enumerate(self.stage_data.stages[start_stage:]):
             stage_num = start_stage + i
@@ -176,8 +168,6 @@ class HivemindGRPOTrainer:
                 f"📉 Finished training round: {round_num} stage: {stage_num}"
             )
 
-        # Push to HF hub if desired
-        # TODO: Come back and add additional logic checking if they've provided access token+HF username
         if self.config.push_to_hub_token is not None:
             self.logger.info("Pushing model to Hugging Face Hub...")
             try:
@@ -198,7 +188,6 @@ class HivemindGRPOTrainer:
         self.cleanup()
 
     def cleanup(self):
-        # Clear various stage caches.
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -210,7 +199,6 @@ class HivemindGRPOTrainer:
                 torch.xpu.empty_cache()  # type: ignore
         except AttributeError:
             pass
-
         self.node.clear_stage_cache()
 
     def train_and_save(self, trainer, train_dataset):
@@ -223,8 +211,6 @@ class HivemindGRPOTrainer:
                 self.cleanup()  # Clear GPU/caches
                 time.sleep(5)
                 continue
-
-        # Log and save metrics
         metrics = train_result.metrics
         metrics["train_samples"] = len(train_dataset)
         trainer.log_metrics("train", metrics)
@@ -261,7 +247,6 @@ class HivemindGRPOTrainer:
                 return
 
         self.logger.info("Training timed out!")
-
     def follower_train(
         self, check_interval=5.0, log_timeout=10.0, max_check_interval=60.0 * 5
     ):
@@ -275,7 +260,6 @@ class HivemindGRPOTrainer:
             curr_time = time.monotonic()
             _ = self.dht.get_visible_maddrs(latest=True)
 
-            # Retrieve current round and stage.
             try:
                 round_num, stage = self.get_round_and_stage()
             except Exception as e:
@@ -297,14 +281,12 @@ class HivemindGRPOTrainer:
                 except datasets.exceptions.DatasetGenerationError:
                     if stage > 0:
                         self.logger.info("Re-attempting training starting at stage 0!")
-
-                        # Start over from stage 0.
                         self.train_stages(round_num, 0, is_coordinator=False)
                     else:
                         raise
 
                 done_rounds.add(round_num)
-                check_backoff = check_interval  # Reset backoff after successful round
+                check_backoff = check_interval
             else:
                 self.logger.info(
                     f"Already finished round: {round_num}. Next check in {check_backoff}s."
@@ -317,18 +299,46 @@ class HivemindGRPOTrainer:
 
         self.logger.info("Training timed out!")
 
-    def _train(self):
-        if self.node.is_coordinator:
-            self.coordinator_train()
-        else:
-            self.follower_train()
+    def catch_up_train(self, start_round=0, end_round=None):
+        """
+        补跑从 start_round 到 end_round的轮次。
+        如果 end_round为None, 则补跑至当前轮次的前一轮。
+        """
+        curr_round, _ = self.get_round_and_stage()
+        if end_round is None:
+            end_round = curr_round - 1
+
+            self.logger.info(f"开始补跑轮次, 从{start_round}到{end_round}")
+            done_rounds = set()
+
+            for round_num in range(start_round, end_round + 1):
+                if round_num in done_rounds:
+                    self.logger.info(f"轮次 {round_num} 已完成, 跳过")
+                    continue
+
+                self.logger.info(f"补跑轮次: {round_num}, 从  stage 0 开始")
+                try:
+                    self.train_stages(round_num, 0, is_coordinator=False)
+                    done_rounds.add(round_num)
+                    self.cleanup()
+                except datasets.exceptions.DatasetGenerationError as e:
+                    self.logger.error(f"轮次 {round_num}  数据生成失败: {e}")
+                    continue
+                except Exception as e:
+                    self.logger.error(f"轮次 {round_num} 训练失败: {e}")
+                    continue
+
+            self.logger.info(f"补跑完成, 从 {start_round} 到 {end_round}")
 
     def train(self):
         try:
-            self._train()
-
+            if self.node.is_coordinator:
+                self.coordinator_train()
+            else:
+                curr_round, _ = self.get_round_and_stage()
+                if curr_round > 0:
+                    self.catch_up_train(start_round=0, end_round=curr_round - 1)
+                    self.follower_train()
         except Exception:
-            self.logger.error("Encountered error during training!")
-            print_system_info()
+            import traceback
             traceback.print_exc()
-            raise
