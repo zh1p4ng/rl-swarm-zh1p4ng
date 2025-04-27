@@ -140,7 +140,18 @@ echo_green ">> connecting to Testnet"
 echo "Please login to create an Ethereum Server Wallet"
 cd modal-login
 # Check if the yarn command exists; if not, install Yarn.
-source ~/.bashrc
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # Mac 环境，尝试加载 zsh 配置
+    if [ -f ~/.zshrc ]; then
+        source ~/.zshrc
+    fi
+else
+    # 非 Mac 环境，尝试加载 bash 配置
+    if [ -f ~/.bashrc ]; then
+        source ~/.bashrc
+    fi
+fi
+
 
 # Node.js + NVM setup
 if ! command -v node >/dev/null 2>&1; then
@@ -167,7 +178,18 @@ if ! command -v yarn > /dev/null 2>&1; then
         echo "Yarn is not installed. Installing Yarn..."
         curl -o- -L https://yarnpkg.com/install.sh | sh
         echo 'export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"' >> ~/.bashrc
-        source ~/.bashrc
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # Mac 环境，尝试加载 zsh 配置
+            if [ -f ~/.zshrc ]; then
+                source ~/.zshrc
+            fi
+        else
+            # 非 Mac 环境，尝试加载 bash 配置
+            if [ -f ~/.bashrc ]; then
+                source ~/.bashrc
+            fi
+        fi
+
     fi
 fi
 yarn install
