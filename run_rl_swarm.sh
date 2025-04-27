@@ -279,7 +279,7 @@ run_training() {
 while true; do
     # 在开始训练前调用清理函数
     check_and_cleanup_processes
-    echo_green ">> Starting training attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES"
+    echo_green ">> Starting training attempt $((RETRY_COUNT + 1))"
 
     # 运行训练
    if run_training; then
