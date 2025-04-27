@@ -171,7 +171,7 @@ if ! command -v yarn > /dev/null 2>&1; then
     fi
 fi
 yarn install
-yarn dev --host 0.0.0.0 > /dev/null 2>&1 & # Run in background and suppress output
+yarn dev > /dev/null 2>&1 & # Run in background and suppress output
 
 SERVER_PID=$!  # Store the process ID
 echo "Started server process: $SERVER_PID"
