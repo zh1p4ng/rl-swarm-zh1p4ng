@@ -247,7 +247,14 @@ while true; do
 done
 
 pip_install() {
-    pip install --disable-pip-version-check -q -r "$1"
+    # 增加 pip 的超时和重试设置
+    pip install --disable-pip-version-check -q -r "$1" --timeout 60 --retries 10 || {
+        echo_green ">> 第一次 pip 安装尝试失败，正在尝试使用阿里云镜像..."
+        pip install --disable-pip-version-check -q -r "$1" --timeout 60 --retries 10 --index-url https://mirrors.aliyun.com/pypi/simple/ || {
+            echo_green ">> 第二次 pip 安装尝试失败，正在尝试使用清华镜像..."
+            pip install --disable-pip-version-check -q -r "$1" --timeout 60 --retries 10 --index-url https://pypi.tuna.tsinghua.edu.cn/simple/
+        }
+    }
 }
 
 echo_green ">> Getting requirements..."
