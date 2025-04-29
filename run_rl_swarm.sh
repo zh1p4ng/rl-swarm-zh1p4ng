@@ -192,12 +192,31 @@ if ! command -v yarn > /dev/null 2>&1; then
 
     fi
 fi
+
+echo "正在启动 modal-login 服务..."
+mkdir -p modal-login/logs
 yarn install
-yarn dev > /dev/null 2>&1 & # Run in background and suppress output
+yarn dev > modal-login/logs/server.log 2>&1 & # Run in background and suppress output
 
 SERVER_PID=$!  # Store the process ID
 echo "Started server process: $SERVER_PID"
-sleep 5
+# 检查服务是否成功启动
+sleep 3
+if ! ps -p $SERVER_PID > /dev/null; then
+    echo "警告: modal-login 服务启动失败，查看日志获取详细信息"
+    cat modal-login/logs/server.log
+    echo "尝试重新启动服务..."
+    yarn dev > modal-login/logs/server.log 2>&1 &
+    SERVER_PID=$!
+    sleep 3
+    
+    if ! ps -p $SERVER_PID > /dev/null; then
+        echo "错误: 无法启动 modal-login 服务，请检查依赖和配置"
+        exit 1
+    fi
+fi
+
+echo "modal-login 服务成功启动，PID: $SERVER_PID"
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS
@@ -250,8 +269,8 @@ if ! command -v nvidia-smi &> /dev/null; then
 else
     echo_green ">> 检测到 NVIDIA GPU"
     echo_green "请选择运行模式: 1. GPU 模式 2. CPU 模式"
-    read -p "请输入选项 (1 或 2): " MODE
     echo "----------------------------------------"
+    read -p "请输入选项 (1 或 2): " MODE
 
     if [ "$MODE" == "1" ]; then
         echo_green ">> 使用 GPU 模式"
