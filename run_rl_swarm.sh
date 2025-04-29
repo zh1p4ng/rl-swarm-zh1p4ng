@@ -31,13 +31,6 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     # Mac上使用不同的内存限制方式
     export PYTORCH_MPS_ALLOCATOR_POLICY=delayed
     export PYTORCH_MPS_ALLOCATOR_POLICY_MAX_ALLOCATION=4096  # 限制最大内存分配为6GB
-else
-    # 非Mac环境设置
-    export CUDA_VISIBLE_DEVICES=0
-    export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
-    export OMP_NUM_THREADS=4
-    export MKL_NUM_THREADS=4
-    ulimit -v 16000000
 fi
 
 # Check if public multi-address is given else set to default
