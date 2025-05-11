@@ -169,103 +169,101 @@ fi
 
 
 
-if [ "$CONNECT_TO_TESTNET" = true ]; then
-    # Run modal_login server.
-    echo "Please login to create an Ethereum Server Wallet"
-    cd modal-login
-    # Check if the yarn command exists; if not, install Yarn.
+# Run modal_login server.
+echo "Please login to create an Ethereum Server Wallet"
+cd modal-login
+# Check if the yarn command exists; if not, install Yarn.
 
-    # Node.js + NVM setup
-    if ! command -v node > /dev/null 2>&1; then
-        echo "Node.js not found. Installing NVM and latest Node.js..."
-        export NVM_DIR="$HOME/.nvm"
-        if [ ! -d "$NVM_DIR" ]; then
-            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-        fi
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-        nvm install node
+# Node.js + NVM setup
+if ! command -v node > /dev/null 2>&1; then
+    echo "Node.js not found. Installing NVM and latest Node.js..."
+    export NVM_DIR="$HOME/.nvm"
+    if [ ! -d "$NVM_DIR" ]; then
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    fi
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+    nvm install node
+else
+    echo "Node.js is already installed: $(node -v)"
+fi
+
+if ! command -v yarn > /dev/null 2>&1; then
+    # Detect Ubuntu (including WSL Ubuntu) and install Yarn accordingly
+    if grep -qi "ubuntu" /etc/os-release 2> /dev/null || uname -r | grep -qi "microsoft"; then
+        echo "Detected Ubuntu or WSL Ubuntu. Installing Yarn via apt..."
+        curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
+        echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
+        sudo apt update && sudo apt install -y yarn
     else
-        echo "Node.js is already installed: $(node -v)"
+        echo "Yarn not found. Installing Yarn globally with npm (no profile edits)…"
+        # This lands in $NVM_DIR/versions/node/<ver>/bin which is already on PATH
+        npm install -g --silent yarn
     fi
+fi
 
-    if ! command -v yarn > /dev/null 2>&1; then
-        # Detect Ubuntu (including WSL Ubuntu) and install Yarn accordingly
-        if grep -qi "ubuntu" /etc/os-release 2> /dev/null || uname -r | grep -qi "microsoft"; then
-            echo "Detected Ubuntu or WSL Ubuntu. Installing Yarn via apt..."
-            curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
-            echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
-            sudo apt update && sudo apt install -y yarn
-        else
-            echo "Yarn not found. Installing Yarn globally with npm (no profile edits)…"
-            # This lands in $NVM_DIR/versions/node/<ver>/bin which is already on PATH
-            npm install -g --silent yarn
-        fi
-    fi
+echo "正在启动 modal-login 服务..."
+mkdir -p modal-login/logs
+yarn install
+yarn dev > modal-login/logs/server.log 2>&1 & # Run in background and suppress output
 
-    echo "正在启动 modal-login 服务..."
-    mkdir -p modal-login/logs
-    yarn install
-    yarn dev > modal-login/logs/server.log 2>&1 & # Run in background and suppress output
-
-    SERVER_PID=$!  # Store the process ID
-    echo "Started server process: $SERVER_PID"
+SERVER_PID=$!  # Store the process ID
+echo "Started server process: $SERVER_PID"
+sleep 3
+if ! ps -p $SERVER_PID > /dev/null; then
+    echo "警告: modal-login 服务启动失败，查看日志获取详细信息"
+    cat modal-login/logs/server.log
+    echo "尝试重新启动服务..."
+    yarn dev > modal-login/logs/server.log 2>&1 &
+    SERVER_PID=$!
     sleep 3
+    
     if ! ps -p $SERVER_PID > /dev/null; then
-        echo "警告: modal-login 服务启动失败，查看日志获取详细信息"
-        cat modal-login/logs/server.log
-        echo "尝试重新启动服务..."
-        yarn dev > modal-login/logs/server.log 2>&1 &
-        SERVER_PID=$!
-        sleep 3
-        
-        if ! ps -p $SERVER_PID > /dev/null; then
-            echo "错误: 无法启动 modal-login 服务，请检查依赖和配置"
-            exit 1
-        fi
+        echo "错误: 无法启动 modal-login 服务，请检查依赖和配置"
+        exit 1
     fi
+fi
 
-    echo "modal-login 服务成功启动，PID: $SERVER_PID"
+echo "modal-login 服务成功启动，PID: $SERVER_PID"
 
-    # Try to open the URL in the default browser
-    if open http://localhost:3000 2> /dev/null; then
-        echo_green ">> Successfully opened http://localhost:3000 in your default browser."
+# Try to open the URL in the default browser
+if open http://localhost:3000 2> /dev/null; then
+    echo_green ">> Successfully opened http://localhost:3000 in your default browser."
+else
+    echo ">> Failed to open http://localhost:3000. Please open it manually."
+fi
+
+cd ..
+
+echo_green ">> Waiting for modal userData.json to be created..."
+while [ ! -f "modal-login/temp-data/userData.json" ]; do
+    sleep 5  # Wait for 5 seconds before checking again
+done
+echo "Found userData.json. Proceeding..."
+
+ORG_ID=$(awk 'BEGIN { FS = "\"" } !/^[ \t]*[{}]/ { print $(NF - 1); exit }' modal-login/temp-data/userData.json)
+echo "Your ORG_ID is set to: $ORG_ID"
+
+# Wait until the API key is activated by the client
+echo "Waiting for API key to become activated..."
+while true; do
+    STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
+    if [[ "$STATUS" == "activated" ]]; then
+        echo "API key is activated! Proceeding..."
+        break
     else
-        echo ">> Failed to open http://localhost:3000. Please open it manually."
+        echo "Waiting for API key to be activated..."
+        sleep 5
     fi
+done
 
-    cd ..
-
-    echo_green ">> Waiting for modal userData.json to be created..."
-    while [ ! -f "modal-login/temp-data/userData.json" ]; do
-        sleep 5  # Wait for 5 seconds before checking again
-    done
-    echo "Found userData.json. Proceeding..."
-
-    ORG_ID=$(awk 'BEGIN { FS = "\"" } !/^[ \t]*[{}]/ { print $(NF - 1); exit }' modal-login/temp-data/userData.json)
-    echo "Your ORG_ID is set to: $ORG_ID"
-
-    # Wait until the API key is activated by the client
-    echo "Waiting for API key to become activated..."
-    while true; do
-        STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
-        if [[ "$STATUS" == "activated" ]]; then
-            echo "API key is activated! Proceeding..."
-            break
-        else
-            echo "Waiting for API key to be activated..."
-            sleep 5
-        fi
-    done
-
-    ENV_FILE="$ROOT"/modal-login/.env
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS version
-        sed -i '' "3s/.*/SMART_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
-    else
-        # Linux version
-        sed -i "3s/.*/SMART_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
-    fi
+ENV_FILE="$ROOT"/modal-login/.env
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS version
+    sed -i '' "3s/.*/SMART_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
+else
+    # Linux version
+    sed -i "3s/.*/SMART_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
 fi
 
 pip_install() {
