@@ -55,10 +55,10 @@ class TestnetGRPOTrainer(HivemindGRPOTrainer):
                 continue
             except Exception as e:
                 self.logger.error(f"轮次 {round_num} 训练失败: {e}")
+                self.logger.error(f"轮次 {round_num} 训练失败: {e}")
                 continue
         self.logger.info(f"补跑完成，从 {start_round} 到 {end_round}")
 
     def _train(self):
-        curr_round, _ = self.get_round_and_stage()
-        self.catch_up_train(start_round=0, end_round=curr_round - 1)
+        self.catch_up_train(start_round=0, end_round=None)
         self.follower_train()

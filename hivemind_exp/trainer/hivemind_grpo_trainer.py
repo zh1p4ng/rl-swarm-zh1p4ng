@@ -340,7 +340,6 @@ class HivemindGRPOTrainer:
                 if round_num in done_rounds:
                     self.logger.info(f"轮次 {round_num} 已完成, 跳过")
                     continue
-
                 self.logger.info(f"补跑轮次: {round_num}, 从  stage 0 开始")
                 try:
                     self.train_stages(round_num, 0, is_coordinator=False)
@@ -359,8 +358,7 @@ class HivemindGRPOTrainer:
         if self.node.is_coordinator:
             self.coordinator_train()
         else:
-            curr_round, _ = self.get_round_and_stage()
-            self.catch_up_train(start_round=0, end_round=curr_round - 1)
+            self.catch_up_train(start_round=0,  end_round=None)
             self.follower_train()
 
     def train(self):

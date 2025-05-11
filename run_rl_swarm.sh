@@ -13,10 +13,6 @@ export CONNECT_TO_TESTNET
 export ORG_ID
 export HF_HUB_DOWNLOAD_TIMEOUT=120  # 2 minutes
 
-# 添加重启相关变量
-RETRY_COUNT=0
-RETRY_DELAY=240  # 重启等待时间（秒）
-
 # Mac特定的内存优化设置
 if [[ "$OSTYPE" == "darwin"* ]]; then
     # Mac环境变量设置
@@ -86,34 +82,6 @@ cleanup() {
     exit 0
 }
 
-# 添加检查和清理进程的函数
-check_and_cleanup_processes() {
-    echo_green ">> 检查并清理已存在的进程..."
-    if [ -f "$ROOT/swarm.pem" ]; then
-        echo_green ">> 检测到 swarm.pem 文件: $ROOT/swarm.pem"
-        for pid in $(lsof -t "$ROOT/swarm.pem" 2>/dev/null); do
-            echo_green ">> 检测到使用 swarm.pem 的进程: $pid"
-            if kill -9 $pid 2>/dev/null; then
-                echo_green ">> 成功终止进程: $pid"
-            fi
-        done
-        sleep 2
-    fi
-
-    for pid in $(pgrep -f "hivemind"); do
-        echo_green ">> 检测到 hivemind 相关进程: $pid"
-        if kill -9 $pid 2>/dev/null; then
-            echo_green ">> 成功终止进程: $pid"
-        fi
-    done
-    sleep 2
-
-    echo_green ">> 清理信号量..."
-    for sem in $(ipcs -s | awk '{print $2}' | tail -n +3); do
-        ipcrm -s $sem 2>/dev/null || true
-    done
-}
-
 trap cleanup EXIT
 
 echo -e "\033[38;5;224m"
@@ -128,17 +96,18 @@ cat << "EOF"
 
 EOF
 
-# 自动设置连接选项
-CONNECT_TO_TESTNET=True
 echo_green ">> connecting to Testnet"
+CONNECT_TO_TESTNET=true
 
-
+# 检测操作系统类型
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    #macOS version
+    # Mac 系统下默认选择 A 任务和 0.5B 模型
+    echo_green ">> 在 Mac 系统默认 Math (A) 任务 0.5B 模型"
+    USE_BIG_SWARM=false
     SWARM_CONTRACT="$SMALL_SWARM_CONTRACT"
-    pc=${pc:-0.5}
+    PARAM_B=0.5
 else
-    #Linux version
+    # 非 Mac 系统下保持原有交互式选择
     while true; do
         echo -en $GREEN_TEXT
         read -p ">> Which swarm would you like to join (Math (A) or Math Hard (B))? [A/b] " ab
@@ -148,7 +117,7 @@ else
             [Aa]*)  USE_BIG_SWARM=false && break ;;
             [Bb]*)  USE_BIG_SWARM=true && break ;;
             *)  echo ">>> Please answer A or B." ;;
-    esac
+        esac
     done
     if [ "$USE_BIG_SWARM" = true ]; then
         SWARM_CONTRACT="$BIG_SWARM_CONTRACT"
@@ -167,122 +136,94 @@ else
     done
 fi
 
+if [ "$CONNECT_TO_TESTNET" = true ]; then
+    # Run modal_login server.
+    echo "Please login to create an Ethereum Server Wallet"
+    cd modal-login
+    # Check if the yarn command exists; if not, install Yarn.
 
-
-# Run modal_login server.
-echo "Please login to create an Ethereum Server Wallet"
-cd modal-login
-# Check if the yarn command exists; if not, install Yarn.
-
-# Node.js + NVM setup
-if ! command -v node > /dev/null 2>&1; then
-    echo "Node.js not found. Installing NVM and latest Node.js..."
-    export NVM_DIR="$HOME/.nvm"
-    if [ ! -d "$NVM_DIR" ]; then
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-    fi
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-    nvm install node
-else
-    echo "Node.js is already installed: $(node -v)"
-fi
-
-if ! command -v yarn > /dev/null 2>&1; then
-    # Detect Ubuntu (including WSL Ubuntu) and install Yarn accordingly
-    if grep -qi "ubuntu" /etc/os-release 2> /dev/null || uname -r | grep -qi "microsoft"; then
-        echo "Detected Ubuntu or WSL Ubuntu. Installing Yarn via apt..."
-        curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
-        echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
-        sudo apt update && sudo apt install -y yarn
+    # Node.js + NVM setup
+    if ! command -v node > /dev/null 2>&1; then
+        echo "Node.js not found. Installing NVM and latest Node.js..."
+        export NVM_DIR="$HOME/.nvm"
+        if [ ! -d "$NVM_DIR" ]; then
+            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+        fi
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+        nvm install node
     else
-        echo "Yarn not found. Installing Yarn globally with npm (no profile edits)…"
-        # This lands in $NVM_DIR/versions/node/<ver>/bin which is already on PATH
-        npm install -g --silent yarn
+        echo "Node.js is already installed: $(node -v)"
     fi
-fi
 
-echo "正在启动 modal-login 服务..."
-mkdir -p modal-login/logs
-yarn install
-yarn dev > modal-login/logs/server.log 2>&1 & # Run in background and suppress output
-
-SERVER_PID=$!  # Store the process ID
-echo "Started server process: $SERVER_PID"
-sleep 3
-if ! ps -p $SERVER_PID > /dev/null; then
-    echo "警告: modal-login 服务启动失败，查看日志获取详细信息"
-    cat modal-login/logs/server.log
-    echo "尝试重新启动服务..."
-    yarn dev > modal-login/logs/server.log 2>&1 &
-    SERVER_PID=$!
-    sleep 3
-    
-    if ! ps -p $SERVER_PID > /dev/null; then
-        echo "错误: 无法启动 modal-login 服务，请检查依赖和配置"
-        exit 1
+    if ! command -v yarn > /dev/null 2>&1; then
+        # Detect Ubuntu (including WSL Ubuntu) and install Yarn accordingly
+        if grep -qi "ubuntu" /etc/os-release 2> /dev/null || uname -r | grep -qi "microsoft"; then
+            echo "Detected Ubuntu or WSL Ubuntu. Installing Yarn via apt..."
+            curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
+            echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
+            sudo apt update && sudo apt install -y yarn
+        else
+            echo "Yarn not found. Installing Yarn globally with npm (no profile edits)…"
+            # This lands in $NVM_DIR/versions/node/<ver>/bin which is already on PATH
+            npm install -g --silent yarn
+        fi
     fi
-fi
+    yarn install
+    yarn dev > /dev/null 2>&1 & # Run in background and suppress output
 
-echo "modal-login 服务成功启动，PID: $SERVER_PID"
+    SERVER_PID=$!  # Store the process ID
+    echo "Started server process: $SERVER_PID"
+    sleep 5
 
-# Try to open the URL in the default browser
-if open http://localhost:3000 2> /dev/null; then
-    echo_green ">> Successfully opened http://localhost:3000 in your default browser."
-else
-    echo ">> Failed to open http://localhost:3000. Please open it manually."
-fi
-
-cd ..
-
-echo_green ">> Waiting for modal userData.json to be created..."
-while [ ! -f "modal-login/temp-data/userData.json" ]; do
-    sleep 5  # Wait for 5 seconds before checking again
-done
-echo "Found userData.json. Proceeding..."
-
-ORG_ID=$(awk 'BEGIN { FS = "\"" } !/^[ \t]*[{}]/ { print $(NF - 1); exit }' modal-login/temp-data/userData.json)
-echo "Your ORG_ID is set to: $ORG_ID"
-
-# Wait until the API key is activated by the client
-echo "Waiting for API key to become activated..."
-while true; do
-    STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
-    if [[ "$STATUS" == "activated" ]]; then
-        echo "API key is activated! Proceeding..."
-        break
+    # Try to open the URL in the default browser
+    if open http://localhost:3000 2> /dev/null; then
+        echo_green ">> Successfully opened http://localhost:3000 in your default browser."
     else
-        echo "Waiting for API key to be activated..."
-        sleep 5
+        echo ">> Failed to open http://localhost:3000. Please open it manually."
     fi
-done
 
-ENV_FILE="$ROOT"/modal-login/.env
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS version
-    sed -i '' "3s/.*/SMART_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
-else
-    # Linux version
-    sed -i "3s/.*/SMART_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
+    cd ..
+
+    echo_green ">> Waiting for modal userData.json to be created..."
+    while [ ! -f "modal-login/temp-data/userData.json" ]; do
+        sleep 5  # Wait for 5 seconds before checking again
+    done
+    echo "Found userData.json. Proceeding..."
+
+    ORG_ID=$(awk 'BEGIN { FS = "\"" } !/^[ \t]*[{}]/ { print $(NF - 1); exit }' modal-login/temp-data/userData.json)
+    echo "Your ORG_ID is set to: $ORG_ID"
+
+    # Wait until the API key is activated by the client
+    echo "Waiting for API key to become activated..."
+    while true; do
+        STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
+        if [[ "$STATUS" == "activated" ]]; then
+            echo "API key is activated! Proceeding..."
+            break
+        else
+            echo "Waiting for API key to be activated..."
+            sleep 5
+        fi
+    done
+
+    ENV_FILE="$ROOT"/modal-login/.env
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS version
+        sed -i '' "3s/.*/SMART_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
+    else
+        # Linux version
+        sed -i "3s/.*/SMART_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
+    fi
 fi
-
-pip_install() {
-    # 增加 pip 的超时和重试设置
-    pip install --disable-pip-version-check -q -r "$1" --timeout 60 --retries 10 || {
-        echo_green ">> 第一次 pip 安装尝试失败，正在尝试使用阿里云镜像..."
-        pip install --disable-pip-version-check -q -r "$1" --timeout 60 --retries 10 --index-url https://mirrors.aliyun.com/pypi/simple/ || {
-            echo_green ">> 第二次 pip 安装尝试失败，正在尝试使用清华镜像..."
-            pip install --disable-pip-version-check -q -r "$1" --timeout 60 --retries 10 --index-url https://pypi.tuna.tsinghua.edu.cn/simple/
-        }
-    }
-}
 
 echo_green ">> Getting requirements..."
 
 pip install --upgrade pip
+
 if [ -n "$CPU_ONLY" ] || ! command -v nvidia-smi &> /dev/null; then
-    # CPU-only mode or no NVIDIA GPU found
-    pip_install "$ROOT"/requirements-cpu.txt
+    echo_green ">> 使用 CPU 模式"
+    pip install -r "$ROOT"/requirements-cpu.txt
     CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml" # TODO: Fix naming.
     GAME="gsm8k"
 else
@@ -293,14 +234,19 @@ else
 
     if [ "$MODE" == "1" ]; then
         # NVIDIA GPU found
-        pip_install "$ROOT"/requirements-gpu.txt
+        pip install -r "$ROOT"/requirements-gpu.txt
         pip install flash-attn --no-build-isolation
 
         case "$PARAM_B" in
-            32 | 72) CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-${PARAM_B}b-bnb-4bit-deepseek-r1.yaml" && break ;;
-            0.5 | 1.5 | 7) CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-${PARAM_B}b-deepseek-r1.yaml" && break ;;
-            *)  echo ">>> Please answer in [0.5, 1.5, 7, 32, 72]." ;;
+            32 | 72) CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-${PARAM_B}b-bnb-4bit-deepseek-r1.yaml" ;;
+            0.5 | 1.5 | 7) CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-${PARAM_B}b-deepseek-r1.yaml" ;;
+            *) 
+                echo ">>> 参数值 $PARAM_B 不在预期范围内 [0.5, 1.5, 7, 32, 72]，使用默认值 0.5"
+                PARAM_B=0.5
+                CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-${PARAM_B}b-deepseek-r1.yaml"
+                ;;
         esac
+        
         if [ "$USE_BIG_SWARM" = true ]; then
             GAME="dapo"
         else
@@ -308,23 +254,23 @@ else
         fi
     elif [ "$MODE" == "2" ]; then
         echo_green ">> 使用 CPU 模式"
-        CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
-        export CUDA_VISIBLE_DEVICES=""
-        CPU_ONLY=${CPU_ONLY:-"1"}
+        # CPU-only mode or no NVIDIA GPU found
+        pip install -r "$ROOT"/requirements-cpu.txt
+        CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml" # TODO: Fix naming.
+        GAME="gsm8k"
     else
         echo_green ">> 无效选项，默认使用 CPU 模式"
-        CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
-        export CUDA_VISIBLE_DEVICES=""
-        CPU_ONLY=${CPU_ONLY:-"1"}
+        # CPU-only mode or no NVIDIA GPU found
+        pip install -r "$ROOT"/requirements-cpu.txt
+        CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml" # TODO: Fix naming.
+        GAME="gsm8k"
     fi
-
-   
 fi
 
 echo_green ">> Done!"
 
+HF_TOKEN=${HF_TOKEN:-""}
 HUGGINGFACE_ACCESS_TOKEN="None"
-# HF_TOKEN=${HF_TOKEN:-""}
 # if [ -n "${HF_TOKEN}" ]; then # Check if HF_TOKEN is already set and use if so. Else give user a prompt to choose.
 #     HUGGINGFACE_ACCESS_TOKEN=${HF_TOKEN}
 # else
@@ -343,43 +289,23 @@ echo_green ">> Good luck in the swarm!"
 echo_blue ">> Post about rl-swarm on X/twitter! --> https://tinyurl.com/swarmtweet"
 echo_blue ">> And remember to star the repo on GitHub! --> https://github.com/gensyn-ai/rl-swarm"
 
-run_training() {
-    if [ -n "$ORG_ID" ]; then
-        python -m hivemind_exp.gsm8k.train_single_gpu \
-            --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
-            --identity_path "$IDENTITY_PATH" \
-            --modal_org_id "$ORG_ID" \
-            --contract_address "$SWARM_CONTRACT" \
-            --config "$CONFIG_PATH" \
-            --game "$GAME"
-    else
-        python -m hivemind_exp.gsm8k.train_single_gpu \
-            --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
-            --identity_path "$IDENTITY_PATH" \
-            --public_maddr "$PUB_MULTI_ADDRS" \
-            --initial_peers "$PEER_MULTI_ADDRS" \
-            --host_maddr "$HOST_MULTI_ADDRS" \
-            --config "$CONFIG_PATH" \
-            --game "$GAME"
-    fi
-}
-
-# 主循环
-while true; do
-    # 在开始训练前调用清理函数
-    check_and_cleanup_processes
-    echo_green ">> Starting training attempt $((RETRY_COUNT + 1))"
-
-    # 运行训练
-   if run_training; then
-        echo_green ">> Training completed successfully"
-    else
-        echo_green ">> Training failed, will retry after $RETRY_DELAY seconds"
-        sleep $RETRY_DELAY
-    fi
-
-    # 增加重试计数
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-done
+if [ -n "$ORG_ID" ]; then
+    python -m hivemind_exp.gsm8k.train_single_gpu \
+        --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
+        --identity_path "$IDENTITY_PATH" \
+        --modal_org_id "$ORG_ID" \
+        --contract_address "$SWARM_CONTRACT" \
+        --config "$CONFIG_PATH" \
+        --game "$GAME"
+else
+    python -m hivemind_exp.gsm8k.train_single_gpu \
+        --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
+        --identity_path "$IDENTITY_PATH" \
+        --public_maddr "$PUB_MULTI_ADDRS" \
+        --initial_peers "$PEER_MULTI_ADDRS" \
+        --host_maddr "$HOST_MULTI_ADDRS" \
+        --config "$CONFIG_PATH" \
+        --game "$GAME"
+fi
 
 wait  # Keep script running until Ctrl+C
