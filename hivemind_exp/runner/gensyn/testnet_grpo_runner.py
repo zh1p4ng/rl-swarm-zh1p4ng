@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Callable, Tuple
 
-import hivemind
 from datasets import Dataset
 from trl import GRPOConfig, ModelConfig
 
@@ -20,7 +19,11 @@ logger = logging.getLogger(__name__)
 class TestnetGRPOArguments:
     # Mutually exclusive.
     wallet_private_key: str | None = None  # EOA wallet private key.
-    modal_org_id: str | None = None # Modal organization ID.
+    modal_org_id: str | None = None  # Modal organization ID.
+
+    # Swarm coordinator contract address
+    contract_address: str = ""
+
 
 class TestnetGRPORunner(GRPORunner):
     def __init__(self, coordinator: SwarmCoordinator) -> None:
@@ -34,13 +37,8 @@ class TestnetGRPORunner(GRPORunner):
         self.coordinator.register_peer(peer_id)
 
     def setup_dht(self, grpo_args):
-        initial_peers = grpo_args.initial_peers
-
-        dht = hivemind.DHT(start=True, startup_timeout=30, **self._dht_kwargs(grpo_args))
-        logger.info(f"🐝 Joining swarm with initial_peers = {initial_peers}")
-
+        dht = super().setup_dht(grpo_args)
         peer_id = str(dht.peer_id)
-        self.name = self._get_animal_name(peer_id)
         self.register_peer(peer_id)
         return dht
 
@@ -65,8 +63,5 @@ class TestnetGRPORunner(GRPORunner):
             grpo_args,
             training_args,
             initial_datasets_fn,
-            partial(
-                TestnetGRPOTrainer,
-                coordinator=self.coordinator
-            ),
+            partial(TestnetGRPOTrainer, coordinator=self.coordinator),
         )

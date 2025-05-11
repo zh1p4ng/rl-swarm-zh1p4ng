@@ -50,6 +50,9 @@ HOST_MULTI_ADDRS=${HOST_MULTI_ADDRS:-$DEFAULT_HOST_MULTI_ADDRS}
 DEFAULT_IDENTITY_PATH="$ROOT"/swarm.pem
 IDENTITY_PATH=${IDENTITY_PATH:-$DEFAULT_IDENTITY_PATH}
 
+SMALL_SWARM_CONTRACT="0x69C6e1D608ec64885E7b185d39b04B491a71768C"
+BIG_SWARM_CONTRACT="0x6947c6E196a48B77eFa9331EC1E3e45f3Ee5Fd58"
+
 # Will ignore any visible GPUs if set.
 CPU_ONLY=${CPU_ONLY:-""}
 
@@ -115,136 +118,155 @@ trap cleanup EXIT
 
 echo -e "\033[38;5;224m"
 cat << "EOF"
-    ██████  ██            ███████ ██     ██  █████  ██████  ███    ███ 
-    ██   ██ ██            ██      ██     ██ ██   ██ ██   ██ ████  ████ 
-    ██████  ██      █████ ███████ ██  █  ██ ███████ ██████  ██ ████ ██ 
-    ██   ██ ██                 ██ ██ ███ ██ ██   ██ ██   ██ ██  ██  ██ 
-    ██   ██ ███████       ███████  ███ ███  ██   ██ ██   ██ ██      ██ 
-    
-    From Gensyn  
-                                                                
+    ██████  ██            ███████ ██     ██  █████  ██████  ███    ███
+    ██   ██ ██            ██      ██     ██ ██   ██ ██   ██ ████  ████
+    ██████  ██      █████ ███████ ██  █  ██ ███████ ██████  ██ ████ ██
+    ██   ██ ██                 ██ ██ ███ ██ ██   ██ ██   ██ ██  ██  ██
+    ██   ██ ███████       ███████  ███ ███  ██   ██ ██   ██ ██      ██
+
+    From Gensyn
+
 EOF
 
 # 自动设置连接选项
 CONNECT_TO_TESTNET=True
 echo_green ">> connecting to Testnet"
 
-# Run modal_login server.
-echo "Please login to create an Ethereum Server Wallet"
-cd modal-login
-# Check if the yarn command exists; if not, install Yarn.
+
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    # Mac 环境，尝试加载 zsh 配置
-    if [ -f ~/.zshrc ]; then
-        source ~/.zshrc
-    fi
+    #macOS version
+    SWARM_CONTRACT="$SMALL_SWARM_CONTRACT"
+    pc=${pc:-0.5}
 else
-    # 非 Mac 环境，尝试加载 bash 配置
-    if [ -f ~/.bashrc ]; then
-        source ~/.bashrc
-    fi
-fi
-
-
-# Node.js + NVM setup
-if ! command -v node >/dev/null 2>&1; then
-    echo "Node.js not found. Installing NVM and latest Node.js..."
-    export NVM_DIR="$HOME/.nvm"
-    if [ ! -d "$NVM_DIR" ]; then
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-    fi
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-    nvm install node
-else
-    echo "Node.js is already installed: $(node -v)"
-fi
-
-if ! command -v yarn > /dev/null 2>&1; then
-    # Detect Ubuntu (including WSL Ubuntu) and install Yarn accordingly
-    if grep -qi "ubuntu" /etc/os-release 2> /dev/null || uname -r | grep -qi "microsoft"; then
-        echo "Detected Ubuntu or WSL Ubuntu. Installing Yarn via apt..."
-        curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
-        echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
-        sudo apt update && sudo apt install -y yarn
+    #Linux version
+    while true; do
+        echo -en $GREEN_TEXT
+        read -p ">> Which swarm would you like to join (Math (A) or Math Hard (B))? [A/b] " ab
+        echo -en $RESET_TEXT
+        ab=${ab:-A}  # Default to "A" if the user presses Enter
+        case $ab in
+            [Aa]*)  USE_BIG_SWARM=false && break ;;
+            [Bb]*)  USE_BIG_SWARM=true && break ;;
+            *)  echo ">>> Please answer A or B." ;;
+    esac
+    done
+    if [ "$USE_BIG_SWARM" = true ]; then
+        SWARM_CONTRACT="$BIG_SWARM_CONTRACT"
     else
-        echo "Yarn is not installed. Installing Yarn..."
-        curl -o- -L https://yarnpkg.com/install.sh | sh
-        echo 'export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"' >> ~/.bashrc
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            # Mac 环境，尝试加载 zsh 配置
-            if [ -f ~/.zshrc ]; then
-                source ~/.zshrc
-            fi
-        else
-            # 非 Mac 环境，尝试加载 bash 配置
-            if [ -f ~/.bashrc ]; then
-                source ~/.bashrc
-            fi
+        SWARM_CONTRACT="$SMALL_SWARM_CONTRACT"
+    fi
+    while true; do
+        echo -en $GREEN_TEXT
+        read -p ">> How many parameters (in billions)? [0.5, 1.5, 7, 32, 72] " pc
+        echo -en $RESET_TEXT
+        pc=${pc:-0.5}  # Default to "0.5" if the user presses Enter
+        case $pc in
+            0.5 | 1.5 | 7 | 32 | 72) PARAM_B=$pc && break ;;
+            *)  echo ">>> Please answer in [0.5, 1.5, 7, 32, 72]." ;;
+        esac
+    done
+fi
+
+
+
+if [ "$CONNECT_TO_TESTNET" = true ]; then
+    # Run modal_login server.
+    echo "Please login to create an Ethereum Server Wallet"
+    cd modal-login
+    # Check if the yarn command exists; if not, install Yarn.
+
+    # Node.js + NVM setup
+    if ! command -v node > /dev/null 2>&1; then
+        echo "Node.js not found. Installing NVM and latest Node.js..."
+        export NVM_DIR="$HOME/.nvm"
+        if [ ! -d "$NVM_DIR" ]; then
+            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
         fi
-
-    fi
-fi
-
-echo "正在启动 modal-login 服务..."
-mkdir -p modal-login/logs
-yarn install
-yarn dev > modal-login/logs/server.log 2>&1 & # Run in background and suppress output
-
-SERVER_PID=$!  # Store the process ID
-echo "Started server process: $SERVER_PID"
-# 检查服务是否成功启动
-sleep 3
-if ! ps -p $SERVER_PID > /dev/null; then
-    echo "警告: modal-login 服务启动失败，查看日志获取详细信息"
-    cat modal-login/logs/server.log
-    echo "尝试重新启动服务..."
-    yarn dev > modal-login/logs/server.log 2>&1 &
-    SERVER_PID=$!
-    sleep 3
-    
-    if ! ps -p $SERVER_PID > /dev/null; then
-        echo "错误: 无法启动 modal-login 服务，请检查依赖和配置"
-        exit 1
-    fi
-fi
-
-echo "modal-login 服务成功启动，PID: $SERVER_PID"
-
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS
-    open http://localhost:3000
-elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
-    # Windows
-    start http://localhost:3000
-else
-    # Linux
-    xdg-open http://localhost:3000 2>/dev/null || sensible-browser http://localhost:3000 2>/dev/null || python -m webbrowser http://localhost:3000
-fi
-
-cd ..
-
-echo_green ">> Waiting for modal userData.json to be created..."
-while [ ! -f "modal-login/temp-data/userData.json" ]; do
-    sleep 5  # Wait for 5 seconds before checking again
-done
-echo "Found userData.json. Proceeding..."
-
-ORG_ID=$(awk 'BEGIN { FS = "\"" } !/^[ \t]*[{}]/ { print $(NF - 1); exit }' modal-login/temp-data/userData.json)
-echo "Your ORG_ID is set to: $ORG_ID"
-
-# Wait until the API key is activated by the client
-echo "Waiting for API key to become activated..."
-while true; do
-    STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
-    if [[ "$STATUS" == "activated" ]]; then
-        echo "API key is activated! Proceeding..."
-        break
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+        nvm install node
     else
-        echo "Waiting for API key to be activated..."
-        sleep 5
+        echo "Node.js is already installed: $(node -v)"
     fi
-done
+
+    if ! command -v yarn > /dev/null 2>&1; then
+        # Detect Ubuntu (including WSL Ubuntu) and install Yarn accordingly
+        if grep -qi "ubuntu" /etc/os-release 2> /dev/null || uname -r | grep -qi "microsoft"; then
+            echo "Detected Ubuntu or WSL Ubuntu. Installing Yarn via apt..."
+            curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
+            echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
+            sudo apt update && sudo apt install -y yarn
+        else
+            echo "Yarn not found. Installing Yarn globally with npm (no profile edits)…"
+            # This lands in $NVM_DIR/versions/node/<ver>/bin which is already on PATH
+            npm install -g --silent yarn
+        fi
+    fi
+
+    echo "正在启动 modal-login 服务..."
+    mkdir -p modal-login/logs
+    yarn install
+    yarn dev > modal-login/logs/server.log 2>&1 & # Run in background and suppress output
+
+    SERVER_PID=$!  # Store the process ID
+    echo "Started server process: $SERVER_PID"
+    sleep 3
+    if ! ps -p $SERVER_PID > /dev/null; then
+        echo "警告: modal-login 服务启动失败，查看日志获取详细信息"
+        cat modal-login/logs/server.log
+        echo "尝试重新启动服务..."
+        yarn dev > modal-login/logs/server.log 2>&1 &
+        SERVER_PID=$!
+        sleep 3
+        
+        if ! ps -p $SERVER_PID > /dev/null; then
+            echo "错误: 无法启动 modal-login 服务，请检查依赖和配置"
+            exit 1
+        fi
+    fi
+
+    echo "modal-login 服务成功启动，PID: $SERVER_PID"
+
+    # Try to open the URL in the default browser
+    if open http://localhost:3000 2> /dev/null; then
+        echo_green ">> Successfully opened http://localhost:3000 in your default browser."
+    else
+        echo ">> Failed to open http://localhost:3000. Please open it manually."
+    fi
+
+    cd ..
+
+    echo_green ">> Waiting for modal userData.json to be created..."
+    while [ ! -f "modal-login/temp-data/userData.json" ]; do
+        sleep 5  # Wait for 5 seconds before checking again
+    done
+    echo "Found userData.json. Proceeding..."
+
+    ORG_ID=$(awk 'BEGIN { FS = "\"" } !/^[ \t]*[{}]/ { print $(NF - 1); exit }' modal-login/temp-data/userData.json)
+    echo "Your ORG_ID is set to: $ORG_ID"
+
+    # Wait until the API key is activated by the client
+    echo "Waiting for API key to become activated..."
+    while true; do
+        STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
+        if [[ "$STATUS" == "activated" ]]; then
+            echo "API key is activated! Proceeding..."
+            break
+        else
+            echo "Waiting for API key to be activated..."
+            sleep 5
+        fi
+    done
+
+    ENV_FILE="$ROOT"/modal-login/.env
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS version
+        sed -i '' "3s/.*/SMART_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
+    else
+        # Linux version
+        sed -i "3s/.*/SMART_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
+    fi
+fi
 
 pip_install() {
     # 增加 pip 的超时和重试设置
@@ -258,14 +280,13 @@ pip_install() {
 }
 
 echo_green ">> Getting requirements..."
-pip_install "$ROOT"/requirements-hivemind.txt
-pip_install "$ROOT"/requirements.txt
 
-echo_green ">> 检测系统环境..."
-if ! command -v nvidia-smi &> /dev/null; then
-    echo_green ">> 未检测到 NVIDIA GPU，默认使用 CPU 模式"
-    CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
-    export CUDA_VISIBLE_DEVICES=""
+pip install --upgrade pip
+if [ -n "$CPU_ONLY" ] || ! command -v nvidia-smi &> /dev/null; then
+    # CPU-only mode or no NVIDIA GPU found
+    pip_install "$ROOT"/requirements-cpu.txt
+    CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml" # TODO: Fix naming.
+    GAME="gsm8k"
 else
     echo_green ">> 检测到 NVIDIA GPU"
     echo_green "请选择运行模式: 1. GPU 模式 2. CPU 模式"
@@ -273,9 +294,20 @@ else
     read -p "请输入选项 (1 或 2): " MODE
 
     if [ "$MODE" == "1" ]; then
-        echo_green ">> 使用 GPU 模式"
-        pip_install "$ROOT"/requirements_gpu.txt
-        CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
+        # NVIDIA GPU found
+        pip_install "$ROOT"/requirements-gpu.txt
+        pip install flash-attn --no-build-isolation
+
+        case "$PARAM_B" in
+            32 | 72) CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-${PARAM_B}b-bnb-4bit-deepseek-r1.yaml" && break ;;
+            0.5 | 1.5 | 7) CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-${PARAM_B}b-deepseek-r1.yaml" && break ;;
+            *)  echo ">>> Please answer in [0.5, 1.5, 7, 32, 72]." ;;
+        esac
+        if [ "$USE_BIG_SWARM" = true ]; then
+            GAME="dapo"
+        else
+            GAME="gsm8k"
+        fi
     elif [ "$MODE" == "2" ]; then
         echo_green ">> 使用 CPU 模式"
         CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
@@ -287,12 +319,27 @@ else
         export CUDA_VISIBLE_DEVICES=""
         CPU_ONLY=${CPU_ONLY:-"1"}
     fi
+
+   
 fi
 
 echo_green ">> Done!"
 
 HUGGINGFACE_ACCESS_TOKEN="None"
-echo_green ">> auto setting Hugging Face token to None"
+# HF_TOKEN=${HF_TOKEN:-""}
+# if [ -n "${HF_TOKEN}" ]; then # Check if HF_TOKEN is already set and use if so. Else give user a prompt to choose.
+#     HUGGINGFACE_ACCESS_TOKEN=${HF_TOKEN}
+# else
+#     echo -en $GREEN_TEXT
+#     read -p ">> Would you like to push models you train in the RL swarm to the Hugging Face Hub? [y/N] " yn
+#     echo -en $RESET_TEXT
+#     yn=${yn:-N} # Default to "N" if the user presses Enter
+#     case $yn in
+#         [Yy]*) read -p "Enter your Hugging Face access token: " HUGGINGFACE_ACCESS_TOKEN ;;
+#         [Nn]*) HUGGINGFACE_ACCESS_TOKEN="None" ;;
+#         *) echo ">>> No answer was given, so NO models will be pushed to Hugging Face Hub" && HUGGINGFACE_ACCESS_TOKEN="None" ;;
+#     esac
+# fi
 
 echo_green ">> Good luck in the swarm!"
 echo_blue ">> Post about rl-swarm on X/twitter! --> https://tinyurl.com/swarmtweet"
@@ -304,7 +351,9 @@ run_training() {
             --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
             --identity_path "$IDENTITY_PATH" \
             --modal_org_id "$ORG_ID" \
-            --config "$CONFIG_PATH"
+            --contract_address "$SWARM_CONTRACT" \
+            --config "$CONFIG_PATH" \
+            --game "$GAME"
     else
         python -m hivemind_exp.gsm8k.train_single_gpu \
             --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
@@ -312,7 +361,8 @@ run_training() {
             --public_maddr "$PUB_MULTI_ADDRS" \
             --initial_peers "$PEER_MULTI_ADDRS" \
             --host_maddr "$HOST_MULTI_ADDRS" \
-            --config "$CONFIG_PATH"
+            --config "$CONFIG_PATH" \
+            --game "$GAME"
     fi
 }
 

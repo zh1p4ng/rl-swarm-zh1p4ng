@@ -1,4 +1,4 @@
-#For geting top-k ranking for subsampling
+# For geting top-k ranking for subsampling
 import hashlib
 import os
 import random
@@ -132,49 +132,67 @@ def sorted_agent_ids(cols, prefix):
 def get_unique_student_ids(cols):
     return {a: i for i, a in enumerate(sorted_agent_ids(cols, "agent_answers_"))}
 
+
 def get_unique_critic_ids(cols):
     return {a: i for i, a in enumerate(sorted_agent_ids(cols, "agent_opinion_"))}
 
-def pick_k_cols(cols, datum, current_stage, default_k=15, method='top_k'):
-    #Filter columns according to current round
+
+def pick_k_cols(cols, datum, current_stage, default_k=5, method="top_k"):
+    # Filter columns according to current round
     if current_stage == 2:
-        prefix = 'agent_answers'
+        prefix = "agent_answers"
     elif current_stage == 3:
-        prefix = 'agent_opinion'
+        prefix = "agent_opinion"
     valid_cols = [c for c in cols if c.startswith(prefix)]
-    #Set k to appropriate length if too large
+    # Set k to appropriate length if too large
     k = min(default_k, len(valid_cols))
-    #Subsample according to chosen method
-    if method == 'uniform_random':
-        #Random sample k cols without replacement
+    # Subsample according to chosen method
+    if method == "uniform_random":
+        # Random sample k cols without replacement
         subsampled_cols = random.sample(valid_cols, k)
-    elif method == 'top_k': #TODO: Clean this up. Super ugly way of doing this, but too jet-lagged to optimize...
-        #Find total reward per answer and map in dict for easy sorting/filtering
-        question, completions, answer = [[{'content':datum['question']}]], [[{'content':datum[c]}] for c in valid_cols], [datum['answer'] for _ in valid_cols] #Weird formatting is for compatability with stage reward functions
+    elif (
+        method == "top_k"
+    ):  # TODO: Clean this up. Super ugly way of doing this, but too jet-lagged to optimize...
+        # Find total reward per answer and map in dict for easy sorting/filtering
+        question, completions, answer = (
+            [[{"content": datum["question"]}]],
+            [[{"content": datum[c]}] for c in valid_cols],
+            [datum["answer"] for _ in valid_cols],
+        )  # Weird formatting is for compatability with stage reward functions
         if current_stage == 2:
-            total_rewards = stage1_rewards.top_k_cumulative_reward(question, completions, answer)
+            total_rewards = stage1_rewards.top_k_cumulative_reward(
+                question, completions, answer
+            )
         elif current_stage == 3:
-            total_rewards = stage2_rewards.top_k_cumulative_reward(question, completions, answer)
-        reward_per_col = {c:{} for c in valid_cols}
-        for idx,c in enumerate(valid_cols):
-            #First hash column name for tiebreaker. Note: Only needed in experimental setting since we don't have a consistent numerical ID per model output.
+            total_rewards = stage2_rewards.top_k_cumulative_reward(
+                question, completions, answer
+            )
+        reward_per_col = {c: {} for c in valid_cols}
+        for idx, c in enumerate(valid_cols):
+            # First hash column name for tiebreaker. Note: Only needed in experimental setting since we don't have a consistent numerical ID per model output.
             hash_fxn = hashlib.md5()
             hash_fxn.update(str.encode(c))
-            reward_per_col[c]['tiebreaker'] = int(hash_fxn.hexdigest(),16)
-            #Add reward for this answer
-            reward_per_col[c]['reward'] = total_rewards[idx]
-        #Pick top k and resolve ties deterministically using the hashed tiebreakers
-        to_sort = [(reward_per_col[c]['reward'], reward_per_col[c]['tiebreaker'], c) for c in reward_per_col]
+            reward_per_col[c]["tiebreaker"] = int(hash_fxn.hexdigest(), 16)
+            # Add reward for this answer
+            reward_per_col[c]["reward"] = total_rewards[idx]
+        # Pick top k and resolve ties deterministically using the hashed tiebreakers
+        to_sort = [
+            (reward_per_col[c]["reward"], reward_per_col[c]["tiebreaker"], c)
+            for c in reward_per_col
+        ]
         to_sort.sort(key=lambda x: (x[0], x[1], x[2]))
         _, _, valid_cols = zip(*to_sort)
         subsampled_cols = valid_cols[-k:]
     return subsampled_cols
 
+
 def generate_stage2_user_prompt(datum, cols):
     sp = []
     sp.append(f"The question we were given is: {datum['question']}" + "  \n\n")
-    sp.append(f"The following answers to this question were suggested:" + " \n")
-    subsampled_cols = pick_k_cols(cols, datum, 2) #Subsample columns to stop prompt bloating
+    sp.append("The following answers to this question were suggested:" + " \n")
+    subsampled_cols = pick_k_cols(
+        cols, datum, 2
+    )  # Subsample columns to stop prompt bloating
     agentID_to_studentID = get_unique_student_ids(subsampled_cols)
     for agentID in agentID_to_studentID:
         feature = f"agent_answers_{agentID}"
@@ -191,10 +209,12 @@ def generate_stage3_user_prompt(datum, cols):
     sp = []
     sp.append(f"{datum['stage2_prompt']}" + "  \n")
     sp.append(
-        f"After comparing these answers, the following feedback was given about which answer is best:"
+        "After comparing these answers, the following feedback was given about which answer is best:"
         + " \n"
     )
-    subsampled_cols = pick_k_cols(cols, datum, 3) #Subsample columns to stop prompt bloating
+    subsampled_cols = pick_k_cols(
+        cols, datum, 3
+    )  # Subsample columns to stop prompt bloating
     # TODO: Why is this different from shared_fs_experiments?
     agentID_to_criticID = get_unique_critic_ids(subsampled_cols)
     for agentID in agentID_to_criticID:
@@ -253,21 +273,6 @@ def get_gsm8k_questions_with_stage1and2_answers(data) -> Dataset:
     return data
 
 
-def get_stage1_samples():
-    # Load dataset from Hugging Face Hub
-    dataset_id = "openai/gsm8k"
-    train_dataset = load_dataset(dataset_id, "main")["train"]
-    test_dataset = load_dataset(dataset_id, "main")["test"]
-    # #TODO: Add ability to select a random subset of num_samples samples if desired
-    # if num_samples != -1:
-    #   dataset = dataset.shuffle(seed=42).select(range(num_samples))
-
-    # convert our dataset to the r1 prompt
-    train_dataset = get_gsm8k_questions(train_dataset)
-    test_dataset = get_gsm8k_questions(test_dataset)
-    return train_dataset, test_dataset
-
-
 def fill_unknown_answers_opinions(values):
     FILLED_FIELDS = ("agent_answers", "agent_opinion")
 
@@ -289,12 +294,20 @@ def fill_unknown_answers_opinions(values):
                     val[field].update({agent: "No answer received..."})
 
 
+def get_stage1_samples():
+    # Load dataset from Hugging Face Hub
+    dataset_id = "openai/gsm8k"
+    train_dataset = load_dataset(dataset_id, "main")["train"]  # type: ignore
+    test_dataset = load_dataset(dataset_id, "main")["test"]  # type: ignore
+
+    # convert our dataset to the r1 prompt
+    train_dataset = get_gsm8k_questions(train_dataset)
+    test_dataset = get_gsm8k_questions(test_dataset)
+    return train_dataset, test_dataset
+
 def get_stage2_samples(values, test_size=0.1):
     fill_unknown_answers_opinions(values)
     dataset = Dataset.from_generator(stage2_generator, gen_kwargs={"values": values})
-    # #TODO: Add ability to select a random subset of num_samples samples if desired
-    # if num_samples != -1:
-    #   dataset = dataset.shuffle(seed=42).select(range(num_samples))
 
     # convert our dataset to the r1 prompt
     dataset = get_gsm8k_questions_with_stage1_answers(dataset)
@@ -304,9 +317,6 @@ def get_stage2_samples(values, test_size=0.1):
 def get_stage3_samples(values, test_size=0.1):
     fill_unknown_answers_opinions(values)
     dataset = Dataset.from_generator(stage3_generator, gen_kwargs={"values": values})
-    # #TODO: Add ability to select a random subset of num_samples samples if desired
-    # if num_samples != -1:
-    #   dataset = dataset.shuffle(seed=42).select(range(num_samples))
 
     # convert our dataset to the r1 prompt
     dataset = get_gsm8k_questions_with_stage1and2_answers(dataset)

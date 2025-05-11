@@ -24,7 +24,7 @@ const TURNKEY_BASE_URL = "https://api.turnkey.com";
 const ALCHEMY_BASE_URL = "https://api.g.alchemy.com";
 
 export async function POST(request: Request) {
-  const body: { orgId: string; roundNumber: bigint; winners: string[]; peerId: string } = await request
+  const body: { orgId: string; roundNumber: bigint; stageNumber: bigint; reward: bigint; peerId: string} = await request
     .json()
     .catch((err) => {
       console.error(err);
@@ -83,25 +83,29 @@ export async function POST(request: Request) {
 
   const contractAdrr = process.env.SMART_CONTRACT_ADDRESS! as `0x${string}`;
 
-
     const { hash } = await client.sendUserOperation({
       uo: {
         target: contractAdrr,
         data: encodeFunctionData({
           abi: [
             {
-              name: "submitWinners",
+              name: "submitReward",
               type: "function",
               inputs: [
                 {
                   internalType: "uint256",
                   name: "roundNumber",
-                  type: "uint256",
+                  type: "uint256"
                 },
                 {
-                  internalType: "string[]",
-                  name: "winners",
-                  type: "string[]",
+                  internalType: "uint256",
+                  name: "stageNumber",
+                  type: "uint256"
+                },
+                {
+                  internalType: "int256",
+                  name: "reward",
+                  type: "int256"
                 },
                 {
                   internalType: "string",
@@ -111,10 +115,10 @@ export async function POST(request: Request) {
               ],
               outputs: [],
               stateMutability: "nonpayable",
-            },
+            }
           ],
-          functionName: "submitWinners",
-          args: [body.roundNumber, body.winners, body.peerId], // Your function arguments
+          functionName: "submitReward",
+          args: [body.roundNumber, body.stageNumber, body.reward, body.peerId], // Your function arguments
         }),
       },
     });
