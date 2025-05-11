@@ -23,6 +23,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     export VECLIB_MAXIMUM_THREADS=2
     export NUMEXPR_NUM_THREADS=2
     export NUMEXPR_MAX_THREADS=2
+    export TOKENIZERS_PARALLELISM=false
     
     # Mac上使用不同的内存限制方式
     export PYTORCH_MPS_ALLOCATOR_POLICY=delayed
