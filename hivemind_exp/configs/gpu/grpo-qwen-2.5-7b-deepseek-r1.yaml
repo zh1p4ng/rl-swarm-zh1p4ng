@@ -1,7 +1,7 @@
 # Model arguments
 model_revision: main
 torch_dtype: bfloat16
-attn_implementation: eager
+attn_implementation: flash_attention_2
 bf16: true
 tf32: true
 
