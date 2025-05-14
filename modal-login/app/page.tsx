@@ -16,6 +16,7 @@ export default function Home() {
   const signer = useSigner();
 
   const [createdApiKey, setCreatedApiKey] = useState(false);
+  const [hasAttemptedLogin, setHasAttemptedLogin] = useState(false);
 
   useEffect(() => {
     // User logged out, so reset the state.
@@ -83,10 +84,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!user && !signerStatus.isInitializing) {
-      openAuthModal();  
+    if (!signerStatus.isInitializing && !user && !hasAttemptedLogin) {
+      const timer = setTimeout(() => {
+        openAuthModal();
+        setHasAttemptedLogin(true);
+      }, 1500);
+      return () => clearTimeout(timer);
     }
-  }, [user, signerStatus.isInitializing]);
+  }, [user, signerStatus.isInitializing, openAuthModal, hasAttemptedLogin]);
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-4 justify-center text-center">
