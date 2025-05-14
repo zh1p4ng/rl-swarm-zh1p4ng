@@ -15,7 +15,7 @@ export const Providers = (
         queryClient={queryClient}
         initialState={props.initialState}
       >
-        <Hydrate>
+        <Hydrate state={props.initialState}>
           {props.children}
         </Hydrate>
       </AlchemyAccountProvider>
