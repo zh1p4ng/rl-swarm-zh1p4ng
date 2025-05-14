@@ -203,7 +203,7 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
             echo "API key is activated! Proceeding..."
             break
         else
-            echo "orgId=$ORG_ID STATUS=$STATUS,Waiting for API key to be activated..."
+            echo "orgId=$ORG_ID STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID"),Waiting for API key to be activated..."
             sleep 5
         fi
     done
