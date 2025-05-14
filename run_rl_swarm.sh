@@ -203,7 +203,7 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
             echo "API key is activated! Proceeding..."
             break
         else
-            echo "STATUS=$STATU，SWaiting for API key to be activated..."
+            echo "STATUS=$STATUS，SWaiting for API key to be activated..."
             sleep 5
         fi
     done
