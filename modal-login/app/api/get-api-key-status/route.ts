@@ -12,7 +12,7 @@ export async function GET(request: Request) {
 
   try {
     const key = getLatestApiKey(orgId);
-    return new NextResponse(`${key?.activated ? "activated" : "pending"}`, {
+    return new NextResponse(`${key?.activated ? true : false}`, {
       status: 200,
     });
   } catch (err) {
