@@ -204,6 +204,7 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
         echo "收到的状态: \"$STATUS\""
         if [[ "$STATUS" == *"activated"* ]]; then
             echo "API key is activated! Proceeding..."
+            rm /tmp/status.txt
             break
         else
             echo "STATUS=<$STATUS> SWaiting for API key to be activated..."
