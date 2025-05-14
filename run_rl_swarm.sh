@@ -198,12 +198,14 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
     # Wait until the API key is activated by the client
     echo "Waiting for API key to become activated..."
     while true; do
-        STATUS=$(curl -s -w '\n' "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
+        STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
+        # 打印调试信息，使用引号包围变量值
+        echo "收到的状态: \"$STATUS\""
         if [[ "$STATUS" == *"activated"* ]]; then
             echo "API key is activated! Proceeding..."
             break
         else
-            echo "STATUS=$STATUS，SWaiting for API key to be activated..."
+            echo "STATUS=<$STATUS> SWaiting for API key to be activated..."
             sleep 5
         fi
     done
