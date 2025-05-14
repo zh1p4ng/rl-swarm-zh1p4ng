@@ -83,16 +83,11 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // 只有当签名状态完成初始化后，才考虑打开登录框
-    if (!signerStatus.isInitializing && !user) {
-      // 添加一个小延迟，确保其他状态已完全加载
-      const timer = setTimeout(() => {
-        openAuthModal();
-      }, 1000);
-      return () => clearTimeout(timer);
+    if (!user && !signerStatus.isInitializing) {
+      openAuthModal();  
     }
-  }, [user, signerStatus.isInitializing, openAuthModal]);
-
+  }, [user, signerStatus.isInitializing]);
+  
   return (
     <main className="flex min-h-screen flex-col items-center gap-4 justify-center text-center">
       {signerStatus.isInitializing || (user && !createdApiKey) ? (
