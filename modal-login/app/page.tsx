@@ -19,6 +19,21 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [apiResponses, setApiResponses] = useState<{getKey?: any, setActivated?: any}>({});
+  const [initializationTime, setInitializationTime] = useState(0);
+
+  // 添加初始化计时器，如果初始化时间过长，提供重试选项
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (signerStatus.isInitializing) {
+      const startTime = Date.now();
+      timer = setInterval(() => {
+        setInitializationTime(Math.floor((Date.now() - startTime) / 1000));
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [signerStatus.isInitializing]);
 
   useEffect(() => {
     // User logged out, so reset the state.
@@ -87,6 +102,8 @@ export default function Home() {
         // Delegate user access to the API key.
         await createApiKey(publicKey);
         
+        console.log("User orgId for activation:", user.orgId);
+        
         // Mark API key as activated in db to flag to consumers that it's ready.
         const activateResp = await fetch("/api/set-api-key-activated", {
           method: "POST",
@@ -105,6 +122,15 @@ export default function Home() {
         const activateData = await activateResp.json();
         setApiResponses(prev => ({...prev, setActivated: activateData}));
         console.log("API key activated:", activateData);
+        
+        // 验证激活状态
+        const verifyResp = await fetch(`/api/get-api-key-status?orgId=${user.orgId}`);
+        const verifyStatus = await verifyResp.text();
+        console.log("Verification status:", verifyStatus);
+        
+        if (!verifyStatus.includes("activated")) {
+          throw new Error("API 密钥激活验证失败，脚本可能无法继续");
+        }
         
         setCreatedApiKey(true);
         setError(null);
@@ -136,7 +162,7 @@ export default function Home() {
 
   // 显示调试信息的函数
   const renderDebugInfo = () => {
-    if (!error && !isLoading) return null;
+    if (!error && !isLoading && !signerStatus.isInitializing) return null;
     
     return (
       <div className="mt-4 p-4 bg-gray-100 rounded text-left max-w-lg">
@@ -146,6 +172,9 @@ export default function Home() {
         <p>签名器状态: {JSON.stringify(signerStatus)}</p>
         <p>API 密钥创建: {createdApiKey ? '是' : '否'}</p>
         <p>加载中: {isLoading ? '是' : '否'}</p>
+        {signerStatus.isInitializing && (
+          <p>初始化时间: {initializationTime} 秒</p>
+        )}
         {Object.keys(apiResponses).length > 0 && (
           <div>
             <p className="font-bold">API 响应:</p>
@@ -158,10 +187,26 @@ export default function Home() {
     );
   };
 
+  // 重新加载页面的函数
+  const handleReload = () => {
+    window.location.reload();
+  };
+
   return (
     <main className="flex min-h-screen flex-col items-center gap-4 justify-center text-center">
       {signerStatus.isInitializing ? (
-        <>初始化中...</>
+        <div className="flex flex-col items-center">
+          <p>初始化中...{initializationTime > 0 ? `(${initializationTime}秒)` : ''}</p>
+          {initializationTime > 15 && (
+            <button 
+              className="btn btn-primary mt-4" 
+              onClick={handleReload}
+            >
+              重新加载页面
+            </button>
+          )}
+          {renderDebugInfo()}
+        </div>
       ) : isLoading ? (
         <>
           <p>正在创建 API 密钥...</p>
