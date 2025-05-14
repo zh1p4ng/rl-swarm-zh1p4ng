@@ -15,7 +15,7 @@ export const Providers = (props: PropsWithChildren) => {
     setInitialState(state);
   }, []);
 
-  if (!initialState) return <Loading />;// 或者 return <Loading />;
+  if (!initialState) return null;
 
   return (
     <QueryClientProvider client={queryClient}>
