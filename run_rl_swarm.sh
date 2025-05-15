@@ -290,23 +290,44 @@ echo_green ">> Good luck in the swarm!"
 echo_blue ">> Post about rl-swarm on X/twitter! --> https://tinyurl.com/swarmtweet"
 echo_blue ">> And remember to star the repo on GitHub! --> https://github.com/gensyn-ai/rl-swarm"
 
-if [ -n "$ORG_ID" ]; then
-    python -m hivemind_exp.gsm8k.train_single_gpu \
-        --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
-        --identity_path "$IDENTITY_PATH" \
-        --modal_org_id "$ORG_ID" \
-        --contract_address "$SWARM_CONTRACT" \
-        --config "$CONFIG_PATH" \
-        --game "$GAME"
-else
-    python -m hivemind_exp.gsm8k.train_single_gpu \
-        --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
-        --identity_path "$IDENTITY_PATH" \
-        --public_maddr "$PUB_MULTI_ADDRS" \
-        --initial_peers "$PEER_MULTI_ADDRS" \
-        --host_maddr "$HOST_MULTI_ADDRS" \
-        --config "$CONFIG_PATH" \
-        --game "$GAME"
-fi
+run_training(){
+    if [ -n "$ORG_ID" ]; then
+        python -m hivemind_exp.gsm8k.train_single_gpu \
+            --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
+            --identity_path "$IDENTITY_PATH" \
+            --modal_org_id "$ORG_ID" \
+            --contract_address "$SWARM_CONTRACT" \
+            --config "$CONFIG_PATH" \
+            --game "$GAME"
+    else
+        python -m hivemind_exp.gsm8k.train_single_gpu \
+            --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
+            --identity_path "$IDENTITY_PATH" \
+            --public_maddr "$PUB_MULTI_ADDRS" \
+            --initial_peers "$PEER_MULTI_ADDRS" \
+            --host_maddr "$HOST_MULTI_ADDRS" \
+            --config "$CONFIG_PATH" \
+            --game "$GAME"
+    fi
+}
+
+RETRY_COUNT=0
+RETRY_DELAY=10 # 重试间隔时间（秒）
+# 主循环
+while true; do
+    # 在开始训练前调用清理函数
+    check_and_cleanup_processes
+    echo_green ">> Starting training attempt $((RETRY_COUNT + 1))"
+    # 运行训练
+    if run_training; then
+        echo_green ">> Training completed successfully"
+    else
+        echo_green ">> Training failed, will retry after $RETRY_DELAY seconds"
+        sleep $RETRY_DELAY
+    fi
+    # 增加重试计数
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+done
+
 
 wait  # Keep script running until Ctrl+C
