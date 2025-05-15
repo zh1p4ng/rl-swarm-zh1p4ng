@@ -199,7 +199,7 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
     echo "Waiting for API key to become activated..."
     while true; do
         # 直接使用grep检查输出
-        if curl -s http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID; then
+        if curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID" | grep -q "activated"; then
             echo "API key is activated! Proceeding..."
             break
         else
