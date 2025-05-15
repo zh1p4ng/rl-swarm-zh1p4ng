@@ -315,8 +315,6 @@ RETRY_COUNT=0
 RETRY_DELAY=10 # 重试间隔时间（秒）
 # 主循环
 while true; do
-    # 在开始训练前调用清理函数
-    check_and_cleanup_processes
     echo_green ">> Starting training attempt $((RETRY_COUNT + 1))"
     # 运行训练
     if run_training; then
