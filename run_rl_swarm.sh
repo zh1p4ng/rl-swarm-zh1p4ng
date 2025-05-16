@@ -227,6 +227,9 @@ if [ -n "$CPU_ONLY" ] || ! command -v nvidia-smi &> /dev/null; then
     pip install -r "$ROOT"/requirements-cpu.txt
     CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml" # TODO: Fix naming.
     GAME="gsm8k"
+    # 明确禁用 CUDA
+    export CUDA_VISIBLE_DEVICES=""
+    export USE_CUDA=0
 else
     echo_green ">> 检测到 NVIDIA GPU"
     echo_green "请选择运行模式: 1. GPU 模式 2. CPU 模式"
@@ -259,12 +262,18 @@ else
         pip install -r "$ROOT"/requirements-cpu.txt
         CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml" # TODO: Fix naming.
         GAME="gsm8k"
+        # 明确禁用 CUDA
+        export CUDA_VISIBLE_DEVICES=""
+        export USE_CUDA=0
     else
         echo_green ">> 无效选项，默认使用 CPU 模式"
         # CPU-only mode or no NVIDIA GPU found
         pip install -r "$ROOT"/requirements-cpu.txt
         CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml" # TODO: Fix naming.
         GAME="gsm8k"
+        # 明确禁用 CUDA
+        export CUDA_VISIBLE_DEVICES=""
+        export USE_CUDA=0
     fi
 fi
 
